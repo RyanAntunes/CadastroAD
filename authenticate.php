@@ -1,132 +1,57 @@
 <?php
-
 session_start();
- 
+
 function authenticate($user, $password) {
-	if(empty($user) || empty($password)) return false;
- 
-	$adServer = "ldaps://";
+    if (empty($user) || empty($password)) return false;
 
-	
-	
-	
-	
+    // Configuração do servidor LDAP
+    $adServer = "ldaps://172.17.1.2"; // IP do servidor AD
+    $base_dn = "OU=VISITANTES,OU=Usuarios de Servicos,OU=_Jotabasso,DC=jotabasso,DC=com,DC=br"; // DN base onde os usuários estão
+    $ldaprdn = 'JOTABASSO' . "\\" . $user; // Formato DOMAIN\user para autenticação
 
-	$base_dn = "";
+    // Definição do grupo que os usuários devem pertencer
+    $ldap_group = "CN=Web_Visitantes,OU=VISITANTES,OU=Usuarios de Servicos,OU=_Jotabasso,DC=jotabasso,DC=com,DC=br";
 
-
-    
-	$ldaprdn = '' . "\\" . $user;
-					
-	
-	$ldap_user_group = "";
-					
-					
-
-	$ldap_manager_group = "";
-
-					
-	
-
-	$ldap_staff_group= "";
-	
-	
-	
-   
-
+    // Conectar ao servidor LDAP
     $ldap = ldap_connect($adServer, 636);
-	 ldap_set_option($ldap, LDAP_OPT_PROTOCOL_VERSION, 3);
+    ldap_set_option($ldap, LDAP_OPT_PROTOCOL_VERSION, 3);
     ldap_set_option($ldap, LDAP_OPT_REFERRALS, 0);
 
-	 $bind = @ldap_bind($ldap, $ldaprdn, $password);
+    // Tentar autenticar o usuário
+    $bind = @ldap_bind($ldap, $ldaprdn, $password);
 
-	 if ($bind) {
-		$filter = "(sAMAccountName=$user)";
-		$details = array("memberof", "sAMAccountName", "cn");
-		$result = ldap_search($ldap, $base_dn, $filter, $details);
-	
-		// Obter entradas de resultados
-		$info = ldap_get_entries($ldap, $result);
-	
-		// Ordenar entradas pelo atributo 'sn' (sobrenome) se existir
-		if (isset($info[0]['sn'])) {
-			usort($info, function($a, $b) {
-				return strcmp($a['sn'][0], $b['sn'][0]);
-			});
-		}
-	
-		ldap_unbind($ldap);
-	
-		$access = 0;
-	
-		if ($bind) {
-			$filter = "(sAMAccountName=$user)";
-			$details = array("memberof", "sAMAccountName", "cn");
-			$result = ldap_search($ldap, $base_dn, $filter, $details);
-		
-			// Obter entradas de resultados
-			$info = ldap_get_entries($ldap, $result);
-		
-			// Certifique-se de que todas as variáveis estão definidas
-			if (!isset($ldap_manager_group)) {
-				$ldap_manager_group = ''; // Valor default ou obtenha o valor apropriado
-			}
-			if (!isset($ldap_tek_group)) {
-				$ldap_tek_group = ''; // Valor default ou obtenha o valor apropriado
-			}
-			if (!isset($ldap_staff_group)) {
-				$ldap_staff_group = ''; // Valor default ou obtenha o valor apropriado
-			}
-		
-			// Verificar se o atributo 'memberof' está presente e é um array
-			if (isset($info[0]['memberof']) && is_array($info[0]['memberof'])) {
-				$access = 0;
-				foreach ($info[0]['memberof'] as $grps) {
-					if (strpos($grps, $ldap_manager_group) !== false) {
-						$access = 3;
-						break;
-					} elseif (strpos($grps, $ldap_tek_group) !== false) {
-						$access = 2;
-						break;
-					} elseif (strpos($grps, $ldap_staff_group) !== false) {
-						$access = 1;
-					}
-				}
-			} else {
-				// Caso o atributo 'memberof' não esteja presente ou não seja um array
-				$access = 0; // Ou outro valor default
-			}
-		
-			ldap_unbind($ldap);
-		}
-		
-	}
-	
-		
+    if ($bind) {
+        // Filtrar o usuário específico
+        $filter = "(sAMAccountName=$user)";
+        $details = array("memberof", "sAMAccountName", "cn");
+        $result = ldap_search($ldap, $base_dn, $filter, $details);
+        $info = ldap_get_entries($ldap, $result);
+        
+        $access = 0;
 
-		foreach($info[0]['cn'] as $cns) {
-			
-			$displayname = $cns;
- 
-			
-		 	
-		
-		}
-		
-		
-		
- 
-		if($access != 0) {
+        // Verificar se o usuário pertence ao grupo específico
+        if (isset($info[0]['memberof']) && is_array($info[0]['memberof'])) {
+            foreach ($info[0]['memberof'] as $grps) {
+                if (strpos($grps, $ldap_group) !== false) {
+                    $access = 1; // Usuário tem acesso
+                    break;
+                }
+            }
+        }
 
-			$_SESSION['displayname'] = $displayname;
-			$_SESSION['user'] = $user;
-			$_SESSION['access'] = $access;
-			return true;
-		} else {
+        ldap_unbind($ldap);
 
-			return false;
-		}
- 
-	  
-	}
+        // Se o usuário tem acesso, armazenar as informações na sessão
+        if ($access != 0) {
+            $_SESSION['displayname'] = $info[0]['cn'][0];
+            $_SESSION['user'] = $user;
+            $_SESSION['access'] = $access;
+            return true;
+        } else {
+            return false; // Acesso negado
+        }
+    } else {
+        return false; // Falha na autenticação
+    }
+}
 ?>
